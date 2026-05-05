@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAD 網頁輔助測量工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1e1e1e; color: #e5e7eb; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #canvas-container { cursor: crosshair; }
+        .mode-btn.active { background-color: #3b82f6; border-color: #2563eb; color: white; }
+        /* 自訂滾動條 */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #2d3748; }
+        ::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #718096; }
+    </style>
+</head>
+<body class="flex h-screen w-screen">
+
+    <!-- 側邊控制欄 -->
+    <aside class="w-80 bg-gray-900 border-r border-gray-700 flex flex-col h-full z-10 shadow-2xl relative">
+        <div class="p-5 border-b border-gray-700">
+            <h1 class="text-xl font-bold flex items-center gap-2 mb-4">
+                <i class="fa-solid fa-ruler-combined text-blue-500"></i> CAD 測量工具
+            </h1>
+            
+            <!-- 上傳圖片 -->
+            <label class="block w-full bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded-lg p-3 text-center cursor-pointer transition">
+                <i class="fa-solid fa-cloud-arrow-up mr-2"></i> 載入圖檔
+                <input type="file" id="uploadInput" accept="image/*" class="hidden">
+            </label>
+        </div>
+
+        <div class="p-5 flex-1 overflow-y-auto">
+            <!-- 模式切換 -->
+            <div class="mb-6">
+                <h2 class="text-sm text-gray-400 mb-2 font-semibold">操作模式 (點擊兩下繪圖)</h2>
+                <div class="flex gap-2">
+                    <button id="btnCalibrate" class="mode-btn flex-1 bg-gray-800 border border-gray-600 py-2 rounded transition hover:bg-gray-700">
+                        <i class="fa-solid fa-ruler text-sm mb-1 block"></i> 校準比例
+                    </button>
+                    <button id="btnMeasure" class="mode-btn flex-1 bg-gray-800 border border-gray-600 py-2 rounded transition hover:bg-gray-700">
+                        <i class="fa-solid fa-pen-nib text-sm mb-1 block"></i> 測量距離
+                    </button>
+                </div>
+            </div>
+
+            <!-- 單位設定 -->
+            <div class="mb-6">
+                <h2 class="text-sm text-gray-400 mb-2 font-semibold">顯示單位</h2>
+                <select id="unitSelect" class="w-full bg-gray-800 border border-gray-600 text-white rounded p-2 outline-none focus:border-blue-500">
+                    <option value="mm">公釐 (mm)</option>
+                    <option value="cm" selected>公分 (cm)</option>
+                    <option value="m">公尺 (m)</option>
+                </select>
+                <div id="calibrationStatus" class="text-xs text-yellow-500 mt-2">
+                    <i class="fa-solid fa-triangle-exclamation"></i> 尚未校準比例尺
+                </div>
+            </div>
+
+            <!-- 線條顏色設定 -->
+            <div class="mb-6">
+                <h2 class="text-sm text-gray-400 mb-2 font-semibold">線條顏色</h2>
+                <div class="flex items-center gap-3">
+                    <input type="color" id="lineColor" value="#3b82f6" class="w-10 h-10 rounded cursor-pointer bg-transparent border-0 p-0" title="自訂顏色">
+                    <div class="flex gap-2">
+                        <button class="color-preset w-6 h-6 rounded-full bg-[#3b82f6] border border-gray-500 hover:scale-110 transition" data-color="#3b82f6" title="藍色"></button>
+                        <button class="color-preset w-6 h-6 rounded-full bg-[#ef4444] border border-gray-500 hover:scale-110 transition" data-color="#ef4444" title="紅色"></button>
+                        <button class="color-preset w-6 h-6 rounded-full bg-[#22c55e] border border-gray-500 hover:scale-110 transition" data-color="#22c55e" title="綠色"></button>
+                        <button class="color-preset w-6 h-6 rounded-full bg-[#eab308] border border-gray-500 hover:scale-110 transition" data-color="#eab308" title="黃色"></button>
+                        <button class="color-preset w-6 h-6 rounded-full bg-[#a855f7] border border-gray-500 hover:scale-110 transition" data-color="#a855f7" title="紫色"></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 視覺細節設定 -->
+            <div class="mb-6">
+                <h2 class="text-sm text-gray-400 mb-2 font-semibold">視覺細節設定</h2>
+                
+                <!-- 新增：顯示隱藏文字開關 -->
+                <label class="flex items-center gap-2 cursor-pointer mb-3 text-sm text-gray-300">
+                    <input type="checkbox" id="uiShowText" checked class="accent-blue-500 w-4 h-4">
+                    顯示測量文字與背景框
+                </label>
+
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-xs text-gray-400 mb-1">
+                            <label>顯示文字大小</label>
+                            <span id="valDisplayText">14px</span>
+                        </div>
+                        <input type="range" id="uiDisplayText" min="8" max="48" value="14" class="w-full accent-blue-500">
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs text-gray-400 mb-1">
+                            <label>匯出文字縮放比例</label>
+                            <span id="valExportText">20%</span>
+                        </div>
+                        <input type="range" id="uiExportText" min="5" max="100" value="20" class="w-full accent-blue-500">
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs text-gray-400 mb-1">
+                            <label>線條粗細</label>
+                            <span id="valLineWidth">2px</span>
+                        </div>
+                        <input type="range" id="uiLineWidth" min="1" max="10" value="2" class="w-full accent-blue-500">
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs text-gray-400 mb-1">
+                            <label>端點大小</label>
+                            <span id="valDotSize">4px</span>
+                        </div>
+                        <input type="range" id="uiDotSize" min="1" max="15" value="4" class="w-full accent-blue-500">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 測量記錄清單 -->
+            <div>
+                <h2 class="text-sm text-gray-400 mb-2 font-semibold flex justify-between items-center">
+                    測量記錄
+                    <span id="recordCount" class="bg-gray-700 px-2 py-0.5 rounded text-xs">0</span>
+                </h2>
+                <ul id="measurementList" class="space-y-2">
+                    <!-- 記錄將由 JS 動態生成 -->
+                </ul>
+            </div>
+        </div>
+
+        <!-- 底部匯出按鈕 -->
+        <div class="p-5 border-t border-gray-700">
+            <button id="btnExport" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-lg transition flex items-center justify-center gap-2">
+                <i class="fa-solid fa-file-export"></i> 匯出包含標註之圖面
+            </button>
+        </div>
+    </aside>
+
+    <!-- 主要畫布區 -->
+    <main id="canvas-container" class="flex-1 relative overflow-hidden bg-gray-950">
+        <canvas id="mainCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+        
+        <!-- 縮放提示 -->
+        <div class="absolute bottom-4 right-4 bg-gray-800/80 text-gray-300 px-3 py-1.5 rounded-full text-xs pointer-events-none border border-gray-700 shadow-lg z-20">
+            <span id="zoomLevel">100%</span>
+        </div>
+    </main>
+
+    <!-- 彈出對話框 (校準輸入) -->
+    <div id="calibrationModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 hidden">
+        <div class="bg-gray-800 rounded-lg p-6 w-80 border border-gray-600 shadow-2xl">
+            <h3 class="text-lg font-bold mb-4">設定實際長度</h3>
+            <p class="text-sm text-gray-400 mb-4">請輸入這條線段在現實中的實際長度：</p>
+            <div class="flex gap-2 mb-6">
+                <input type="number" id="calLength" class="flex-1 bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white outline-none focus:border-blue-500" placeholder="例如: 100">
+                <select id="calUnit" class="bg-gray-900 border border-gray-600 rounded px-2 text-white outline-none">
+                    <option value="mm">mm</option>
+                    <option value="cm" selected>cm</option>
+                    <option value="m">m</option>
+                </select>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button id="btnCancelCal" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition">取消</button>
+                <button id="btnConfirmCal" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm transition font-bold">確認</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 訊息提示 -->
+    <div id="toast" class="fixed top-5 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none z-50 flex items-center gap-2">
+        <i class="fa-solid fa-circle-info"></i>
+        <span id="toastMsg">訊息</span>
+    </div>
+
+    <script>
+        // === 系統狀態 ===
+        const state = {
+            image: null,
+            scale: 1,
+            offsetX: 0,
+            offsetY: 0,
+            mode: 'idle', // 'idle', 'calibrate', 'measure'
+            isDrawing: false,
+            isPanning: false,
+            panStartX: 0,
+            panStartY: 0,
+            currentLine: null, // {x1, y1, x2, y2}
+            pixelsPerMm: null,
+            measurements: [],
+            nextId: 1,
+            screenMouseX: null,
+            screenMouseY: null,
+            showText: true // 新增：是否顯示文字
+        };
+
+        const unitFactors = { 'mm': 1, 'cm': 10, 'm': 1000 };
+
+        // === DOM 元素 ===
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('canvas-container');
+        const uploadInput = document.getElementById('uploadInput');
+        const btnCalibrate = document.getElementById('btnCalibrate');
+        const btnMeasure = document.getElementById('btnMeasure');
+        const unitSelect = document.getElementById('unitSelect');
+        const zoomLevel = document.getElementById('zoomLevel');
+        const calibrationStatus = document.getElementById('calibrationStatus');
+        const measurementList = document.getElementById('measurementList');
+        const recordCount = document.getElementById('recordCount');
+        const btnExport = document.getElementById('btnExport');
+        const toast = document.getElementById('toast');
+        const toastMsg = document.getElementById('toastMsg');
+        const lineColorInput = document.getElementById('lineColor');
+        const colorPresets = document.querySelectorAll('.color-preset');
+        
+        // 視覺設定 elements
+        const uiDisplayText = document.getElementById('uiDisplayText');
+        const valDisplayText = document.getElementById('valDisplayText');
+        const uiExportText = document.getElementById('uiExportText');
+        const valExportText = document.getElementById('valExportText');
+        const uiLineWidth = document.getElementById('uiLineWidth');
+        const valLineWidth = document.getElementById('valLineWidth');
+        const uiDotSize = document.getElementById('uiDotSize');
+        const valDotSize = document.getElementById('valDotSize');
+        const uiShowText = document.getElementById('uiShowText'); // 新增：顯示文字切換按鈕
+
+        const modal = document.getElementById('calibrationModal');
+        const calLengthInput = document.getElementById('calLength');
+        const calUnitSelect = document.getElementById('calUnit');
+        const btnConfirmCal = document.getElementById('btnConfirmCal');
+        const btnCancelCal = document.getElementById('btnCancelCal');
+
+        // === 初始化與響應式畫布 ===
+        function resizeCanvas() {
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            draw();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function showToast(msg, isError = false) {
+            toastMsg.textContent = msg;
+            toast.className = `fixed top-5 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 z-50 flex items-center gap-2 ${isError ? 'bg-red-600' : 'bg-blue-600'}`;
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+        }
+
+        // === 圖片上傳處理 ===
+        uploadInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    state.image = img;
+                    const scaleX = canvas.width / img.width;
+                    const scaleY = canvas.height / img.height;
+                    state.scale = Math.min(scaleX, scaleY) * 0.9;
+                    state.offsetX = (canvas.width - img.width * state.scale) / 2;
+                    state.offsetY = (canvas.height - img.height * state.scale) / 2;
+                    
+                    state.pixelsPerMm = null;
+                    state.measurements = [];
+                    state.nextId = 1;
+                    updateUI();
+                    setMode('calibrate');
+                    showToast('圖檔已載入，請先點擊兩下繪製一條直線以「校準比例」');
+                    draw();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function setMode(mode) {
+            if (!state.image) {
+                showToast('請先載入圖檔！', true);
+                return;
+            }
+            if (mode === 'measure' && !state.pixelsPerMm) {
+                showToast('請先進行比例尺校準！', true);
+                setMode('calibrate');
+                return;
+            }
+
+            state.mode = mode;
+            btnCalibrate.classList.toggle('active', mode === 'calibrate');
+            btnMeasure.classList.toggle('active', mode === 'measure');
+            container.style.cursor = mode === 'idle' ? 'default' : 'none'; // 隱藏原生游標，使用虛擬十字線
+        }
+
+        btnCalibrate.addEventListener('click', () => setMode('calibrate'));
+        btnMeasure.addEventListener('click', () => setMode('measure'));
+        unitSelect.addEventListener('change', updateUI);
+
+        colorPresets.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                lineColorInput.value = e.target.dataset.color;
+                if (state.isDrawing) draw(); 
+            });
+        });
+        lineColorInput.addEventListener('input', () => {
+             if (state.isDrawing) draw();
+        });
+
+        // 視覺設定連動 (拖曳時即時更新畫面)
+        const visualSettings = [
+            { input: uiDisplayText, val: valDisplayText, suffix: 'px' },
+            { input: uiExportText, val: valExportText, suffix: '%' },
+            { input: uiLineWidth, val: valLineWidth, suffix: 'px' },
+            { input: uiDotSize, val: valDotSize, suffix: 'px' }
+        ];
+        visualSettings.forEach(item => {
+            item.input.addEventListener('input', (e) => {
+                item.val.textContent = e.target.value + item.suffix;
+                draw(); // 即時重繪預覽
+            });
+        });
+
+        // 新增：顯示隱藏文字事件
+        uiShowText.addEventListener('change', (e) => {
+            state.showText = e.target.checked;
+            draw();
+        });
+
+        // === 座標轉換 ===
+        function screenToImage(x, y) {
+            return {
+                x: (x - state.offsetX) / state.scale,
+                y: (y - state.offsetY) / state.scale
+            };
+        }
+
+        function imageToScreen(x, y) {
+            return {
+                x: x * state.scale + state.offsetX,
+                y: y * state.scale + state.offsetY
+            };
+        }
+
+        function calculateDistance(x1, y1, x2, y2) {
+            return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+        }
+
+        function formatDistance(pixels) {
+            if (!state.pixelsPerMm) return { val: 0, text: '未知' };
+            const selectedUnit = unitSelect.value;
+            const mm = pixels / state.pixelsPerMm;
+            const finalVal = mm / unitFactors[selectedUnit];
+            return { val: finalVal, text: `${finalVal.toFixed(2)} ${selectedUnit}` };
+        }
+
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+
+        // === 滑鼠互動 (點擊兩下模式) ===
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && state.isDrawing) {
+                state.isDrawing = false;
+                state.currentLine = null;
+                showToast('已取消本次繪製');
+                draw();
+            }
+            // 新增：按住 Shift 即時觸發正交鎖定預覽
+            if (e.key === 'Shift' && state.isDrawing && state.screenMouseX !== null) {
+                const imgPos = screenToImage(state.screenMouseX, state.screenMouseY);
+                const dx = imgPos.x - state.currentLine.x1;
+                const dy = imgPos.y - state.currentLine.y1;
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    imgPos.y = state.currentLine.y1;
+                } else {
+                    imgPos.x = state.currentLine.x1;
+                }
+                state.currentLine.x2 = imgPos.x;
+                state.currentLine.y2 = imgPos.y;
+                draw();
+            }
+        });
+
+        // 新增：放開 Shift 時恢復自由移動
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'Shift' && state.isDrawing && state.screenMouseX !== null) {
+                const imgPos = screenToImage(state.screenMouseX, state.screenMouseY);
+                state.currentLine.x2 = imgPos.x;
+                state.currentLine.y2 = imgPos.y;
+                draw();
+            }
+        });
+
+        canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+        // 避免側鍵觸發瀏覽器的上一頁/下一頁功能
+        window.addEventListener('mouseup', (e) => {
+             if (e.button === 3 || e.button === 4) {
+                 e.preventDefault();
+             }
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (!state.image) return;
+
+            const pos = getMousePos(e);
+
+            // ★ 修改：側鍵前鍵 (按鈕 4) -> 平移圖面
+            if (e.button === 4) {
+                e.preventDefault(); // 防止瀏覽器下一頁動作
+                state.isPanning = true;
+                state.panStartX = pos.x - state.offsetX;
+                state.panStartY = pos.y - state.offsetY;
+                container.style.cursor = 'grabbing';
+                return;
+            }
+
+            // 左鍵 (按鈕 0) -> 繪圖
+            if (e.button === 0 && (state.mode === 'calibrate' || state.mode === 'measure')) {
+                let imgPos = screenToImage(pos.x, pos.y);
+                
+                if (!state.isDrawing) {
+                    // 第一下點擊
+                    state.isDrawing = true;
+                    state.currentLine = { x1: imgPos.x, y1: imgPos.y, x2: imgPos.x, y2: imgPos.y };
+                    showToast('已設定起點，請移動滑鼠並再次點擊以設定終點 (按 ESC 取消，按住 Shift 正交移動)');
+                } else {
+                    // 第二下點擊
+                    state.isDrawing = false;
+
+                    // 新增：處理完成時的 Shift 正交鎖定
+                    if (e.shiftKey) {
+                        const dx = imgPos.x - state.currentLine.x1;
+                        const dy = imgPos.y - state.currentLine.y1;
+                        if (Math.abs(dx) > Math.abs(dy)) {
+                            imgPos.y = state.currentLine.y1;
+                        } else {
+                            imgPos.x = state.currentLine.x1;
+                        }
+                    }
+
+                    state.currentLine.x2 = imgPos.x;
+                    state.currentLine.y2 = imgPos.y;
+
+                    const distPx = calculateDistance(state.currentLine.x1, state.currentLine.y1, state.currentLine.x2, state.currentLine.y2);
+                    
+                    if (distPx > 1) { 
+                        if (state.mode === 'calibrate') {
+                            openCalibrationModal(distPx);
+                        } else if (state.mode === 'measure') {
+                            addMeasurement(state.currentLine, distPx);
+                        }
+                    }
+                    state.currentLine = null;
+                }
+                draw();
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!state.image) return;
+
+            const pos = getMousePos(e);
+            state.screenMouseX = pos.x;
+            state.screenMouseY = pos.y;
+
+            if (state.isPanning) {
+                state.offsetX = pos.x - state.panStartX;
+                state.offsetY = pos.y - state.panStartY;
+            } else if (state.isDrawing && state.currentLine) {
+                let imgPos = screenToImage(pos.x, pos.y);
+
+                // 新增：按住 Shift 時的正交移動 (水平或垂直)
+                if (e.shiftKey) {
+                    const dx = imgPos.x - state.currentLine.x1;
+                    const dy = imgPos.y - state.currentLine.y1;
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                        imgPos.y = state.currentLine.y1;
+                    } else {
+                        imgPos.x = state.currentLine.x1;
+                    }
+                }
+
+                state.currentLine.x2 = imgPos.x;
+                state.currentLine.y2 = imgPos.y;
+            }
+            
+            draw();
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            state.screenMouseX = null;
+            state.screenMouseY = null;
+            draw();
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            // ★ 修改：釋放側鍵前鍵 (按鈕 4) 時結束平移
+            if (state.isPanning && e.button === 4) {
+                state.isPanning = false;
+                container.style.cursor = state.mode === 'idle' ? 'default' : 'none';
+            }
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            if (!state.image) return;
+
+            const pos = getMousePos(e);
+            const zoomSensitivity = 0.001;
+            const delta = -e.deltaY * zoomSensitivity;
+            let newScale = state.scale * Math.exp(delta);
+            newScale = Math.max(0.1, Math.min(newScale, 50)); 
+
+            state.offsetX = pos.x - (pos.x - state.offsetX) * (newScale / state.scale);
+            state.offsetY = pos.y - (pos.y - state.offsetY) * (newScale / state.scale);
+            state.scale = newScale;
+
+            zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
+            draw();
+        });
+
+        // === 校準 Modal ===
+        let tempPixelLength = 0;
+        function openCalibrationModal(pixelLength) {
+            tempPixelLength = pixelLength;
+            calLengthInput.value = '';
+            calUnitSelect.value = unitSelect.value;
+            modal.classList.remove('hidden');
+            calLengthInput.focus();
+        }
+
+        function closeCalibrationModal() {
+            modal.classList.add('hidden');
+            tempPixelLength = 0;
+            state.currentLine = null;
+            draw();
+        }
+
+        btnCancelCal.addEventListener('click', closeCalibrationModal);
+        
+        btnConfirmCal.addEventListener('click', () => {
+            const val = parseFloat(calLengthInput.value);
+            if (isNaN(val) || val <= 0) {
+                showToast('請輸入有效的數字大於0', true);
+                return;
+            }
+            
+            const unit = calUnitSelect.value;
+            const lengthInMm = val * unitFactors[unit];
+            state.pixelsPerMm = tempPixelLength / lengthInMm;
+            
+            closeCalibrationModal();
+            updateUI();
+            setMode('measure');
+            showToast('校準完成，現在您可以開始測量了！');
+            draw();
+        });
+
+        // === 測量記錄 ===
+        function addMeasurement(line, distPx) {
+            const m = {
+                id: state.nextId++,
+                x1: line.x1, y1: line.y1,
+                x2: line.x2, y2: line.y2,
+                distancePx: distPx,
+                color: lineColorInput.value
+            };
+            state.measurements.push(m);
+            updateUI();
+        }
+
+        function deleteMeasurement(id) {
+            state.measurements = state.measurements.filter(m => m.id !== id);
+            updateUI();
+            draw();
+        }
+
+        // 新增：修改已存在測量記錄的顏色
+        window.updateMeasurementColor = function(id, newColor) {
+            const m = state.measurements.find(x => x.id === id);
+            if (m) {
+                m.color = newColor;
+                draw(); // 重繪圖面
+            }
+        };
+
+        function updateUI() {
+            if (state.pixelsPerMm) {
+                calibrationStatus.innerHTML = `<i class="fa-solid fa-check text-green-500"></i> 已校準`;
+                calibrationStatus.className = "text-xs text-gray-400 mt-2";
+            } else {
+                calibrationStatus.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> 尚未校準比例尺`;
+                calibrationStatus.className = "text-xs text-yellow-500 mt-2";
+            }
+
+            measurementList.innerHTML = '';
+            recordCount.textContent = state.measurements.length;
+
+            state.measurements.forEach(m => {
+                const li = document.createElement('li');
+                li.className = "flex justify-between items-center bg-gray-800 p-2 border border-gray-700 rounded text-sm hover:bg-gray-750 transition";
+                const { text } = formatDistance(m.distancePx);
+                li.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="w-5 h-5 rounded-full bg-gray-900 border border-gray-600 text-gray-300 flex items-center justify-center text-xs font-bold">${m.id}</span>
+                        <input type="color" value="${m.color}" class="w-5 h-5 rounded cursor-pointer bg-transparent border-0 p-0" onchange="updateMeasurementColor(${m.id}, this.value)" title="修改此線條顏色">
+                        <span class="font-mono">${text}</span>
+                    </div>
+                    <button class="text-red-400 hover:text-red-300 p-1" title="刪除" onclick="deleteMeasurement(${m.id})">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                `;
+                measurementList.appendChild(li);
+            });
+            draw();
+        }
+
+        // === 核心繪圖引擎 (分離影像與螢幕空間) ===
+        function draw(context = ctx, isExporting = false) {
+            // 1. 清除背景
+            if (!isExporting) {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+            }
+
+            if (!state.image) return;
+
+            // 2. 繪製圖片 (套用縮放與平移)
+            context.save();
+            if (!isExporting) {
+                context.translate(state.offsetX, state.offsetY);
+                context.scale(state.scale, state.scale);
+            }
+            context.drawImage(state.image, 0, 0);
+            context.restore(); // ★ 核心修改：恢復到螢幕比例 (Scale 永遠為 1)，確保線條粗細正常！
+
+            // 3. 繪製標註線條 (使用螢幕絕對座標，避免因為 scale 導致隱形)
+            const drawWrapper = (imgLine, color, text, id) => {
+                context.save();
+                context.setLineDash([]); // ★ 強制關閉虛線，確保標註是實線
+                
+                // 轉換座標：匯出時保持原圖比例，畫面上顯示時轉為絕對螢幕像素
+                const pt1 = isExporting ? {x: imgLine.x1, y: imgLine.y1} : imageToScreen(imgLine.x1, imgLine.y1);
+                const pt2 = isExporting ? {x: imgLine.x2, y: imgLine.y2} : imageToScreen(imgLine.x2, imgLine.y2);
+
+                // 取得使用者自訂的視覺參數
+                const baseLineWidth = parseFloat(uiLineWidth.value);
+                const baseDotSize = parseFloat(uiDotSize.value);
+                const baseDisplayTextSize = parseFloat(uiDisplayText.value);
+                const exportTextScaleValue = parseFloat(uiExportText.value) / 100;
+
+                // 計算匯出時需要的放大倍率(避免匯出原圖時字太小)
+                const exportScale = isExporting ? Math.max(1, state.image.width / 1200) : 1;
+                // 依據需求，將匯出時的「測量文字與背景框」獨立縮小
+                const textExportScale = isExporting ? exportScale * exportTextScaleValue : 1;
+
+                // 畫主線段
+                context.beginPath();
+                context.moveTo(pt1.x, pt1.y);
+                context.lineTo(pt2.x, pt2.y);
+                context.strokeStyle = color;
+                context.lineWidth = baseLineWidth * (isExporting ? exportScale : 1);
+                context.stroke();
+
+                // 畫兩個端點圓形
+                const radius = baseDotSize * (isExporting ? exportScale : 1);
+                context.fillStyle = color;
+                context.beginPath(); context.arc(pt1.x, pt1.y, radius, 0, Math.PI * 2); context.fill();
+                context.beginPath(); context.arc(pt2.x, pt2.y, radius, 0, Math.PI * 2); context.fill();
+
+                // 新增：判斷是否顯示文字與背景
+                if (state.showText) {
+                    // 畫文字背景與文字
+                    const midX = (pt1.x + pt2.x) / 2;
+                    const midY = (pt1.y + pt2.y) / 2;
+                    const fontSize = baseDisplayTextSize * textExportScale;
+                    context.font = `bold ${fontSize}px Arial`;
+                    
+                    const fullText = id ? `[${id}] ${text}` : text;
+                    const textWidth = context.measureText(fullText).width;
+                    
+                    // 動態計算背景框的 padding (隨文字大小完美縮放)
+                    const paddingX = Math.max(4, fontSize * 0.4);
+                    const paddingY = Math.max(2, fontSize * 0.2);
+
+                    // 半透明黑色背景框
+                    context.fillStyle = "rgba(0, 0, 0, 0.75)";
+                    context.fillRect(
+                        midX - textWidth/2 - paddingX, 
+                        midY - fontSize/2 - paddingY, 
+                        textWidth + paddingX * 2, 
+                        fontSize + paddingY * 2
+                    );
+                    
+                    // 白色文字
+                    context.fillStyle = "#ffffff";
+                    context.textAlign = "center";
+                    context.textBaseline = "middle";
+                    context.fillText(fullText, midX, midY);
+                }
+                context.restore();
+            };
+
+            // 依序繪製所有已保存的線
+            state.measurements.forEach(m => {
+                const { text } = formatDistance(m.distancePx);
+                drawWrapper(m, m.color, text, m.id);
+            });
+
+            // 繪製當下正在拖拉的暫時線
+            if (state.currentLine) {
+                const distPx = calculateDistance(state.currentLine.x1, state.currentLine.y1, state.currentLine.x2, state.currentLine.y2);
+                let text = "繪製中...";
+                if (state.mode === 'measure' && state.pixelsPerMm) {
+                    text = formatDistance(distPx).text;
+                }
+                const drawColor = state.mode === 'calibrate' ? '#eab308' : lineColorInput.value;
+                drawWrapper(state.currentLine, drawColor, text, null); 
+            }
+
+            // 4. 繪製全螢幕十字虛擬輔助線 (僅在操作模式且滑鼠在畫布內時顯示)
+            if (!isExporting && state.screenMouseX !== null && state.screenMouseY !== null && state.mode !== 'idle') {
+                context.save();
+                
+                // 底層黑色實線 (保證對比度)
+                context.beginPath();
+                context.moveTo(0, state.screenMouseY);
+                context.lineTo(canvas.width, state.screenMouseY);
+                context.moveTo(state.screenMouseX, 0);
+                context.lineTo(state.screenMouseX, canvas.height);
+                context.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+                context.lineWidth = 1;
+                context.setLineDash([]); // 確保實線
+                context.stroke();
+
+                // 上層白色虛線
+                context.beginPath();
+                context.moveTo(0, state.screenMouseY);
+                context.lineTo(canvas.width, state.screenMouseY);
+                context.moveTo(state.screenMouseX, 0);
+                context.lineTo(state.screenMouseX, canvas.height);
+                context.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                context.lineWidth = 1;
+                context.setLineDash([5, 5]); // 設定虛線樣式
+                context.stroke();
+                
+                context.restore();
+            }
+        }
+
+        // === 匯出高解析度圖片 ===
+        btnExport.addEventListener('click', () => {
+            if (!state.image) {
+                showToast('沒有可匯出的圖面', true);
+                return;
+            }
+
+            const exportBtnOriginalText = btnExport.innerHTML;
+            btnExport.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 處理中...';
+            
+            setTimeout(() => {
+                const offCanvas = document.createElement('canvas');
+                offCanvas.width = state.image.width;
+                offCanvas.height = state.image.height;
+                const offCtx = offCanvas.getContext('2d');
+
+                draw(offCtx, true);
+
+                const link = document.createElement('a');
+                link.download = `CAD測量標註_${new Date().getTime()}.png`;
+                link.href = offCanvas.toDataURL('image/png');
+                link.click();
+                
+                btnExport.innerHTML = exportBtnOriginalText;
+                showToast('圖面已成功匯出！');
+            }, 50);
+        });
+
+    </script>
+</body>
+</html>
